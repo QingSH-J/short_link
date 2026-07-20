@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
 import {
+  BarChart3,
+  Calendar,
   Check,
   Clipboard,
   ExternalLink,
+  Info,
   Link2,
   Loader2,
+  QrCode,
   RefreshCw,
+  Trash2,
   X
 } from "lucide-react";
 
@@ -45,6 +50,24 @@ function buildApiUrl(path) {
   return `${normalizeOrigin(apiOrigin)}${path}`;
 }
 
+function buildLinkApiPath(shortCode, suffix = "") {
+  return `/api/link/${encodeURIComponent(shortCode)}${suffix}`;
+}
+
+async function readJsonResponse(response) {
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error("请求太频繁了，稍等一下再试。");
+    }
+
+    throw new Error(getFriendlyError(payload.message));
+  }
+
+  return payload;
+}
+
 function isHttpUrl(value) {
   try {
     const parsed = new URL(value);
@@ -78,6 +101,9 @@ export default function App() {
   const [original, setOriginal] = useState("");
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState(readHistory);
+  const [detailsByCode, setDetailsByCode] = useState({});
+  const [visibleQrCode, setVisibleQrCode] = useState("");
+  const [loadingAction, setLoadingAction] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [copiedCode, setCopiedCode] = useState("");
@@ -123,6 +149,8 @@ export default function App() {
         shortCode: payload.shortCode,
         originalUrl: payload.originalUrl,
         shortUrl: buildShortUrl(payload.shortCode),
+        status: "active",
+        clickCount: 0,
         createdAt: new Date().toISOString()
       };
 
@@ -161,6 +189,91 @@ export default function App() {
     const sample = sampleUrls[Math.floor(Math.random() * sampleUrls.length)];
     setOriginal(sample);
     setError("");
+  }
+
+  async function loadStats(shortCode) {
+    setError("");
+    setLoadingAction(`${shortCode}:stats`);
+
+    try {
+      const response = await fetch(buildApiUrl(buildLinkApiPath(shortCode, "/stats")));
+      const payload = await readJsonResponse(response);
+      setDetailsByCode((current) => ({
+        ...current,
+        [shortCode]: {
+          ...current[shortCode],
+          shortCode: payload.shortCode,
+          clickCount: payload.clickCount
+        }
+      }));
+    } catch (err) {
+      setError(getRequestError(err));
+    } finally {
+      setLoadingAction("");
+    }
+  }
+
+  async function loadDetail(shortCode) {
+    setError("");
+    setLoadingAction(`${shortCode}:detail`);
+
+    try {
+      const response = await fetch(buildApiUrl(buildLinkApiPath(shortCode)));
+      const payload = await readJsonResponse(response);
+      setDetailsByCode((current) => ({
+        ...current,
+        [shortCode]: payload
+      }));
+    } catch (err) {
+      setError(getRequestError(err));
+    } finally {
+      setLoadingAction("");
+    }
+  }
+
+  async function deleteLink(shortCode) {
+    const shouldDelete = window.confirm("确定删除这个短链接吗？删除后会停止跳转。");
+    if (!shouldDelete) {
+      return;
+    }
+
+    setError("");
+    setLoadingAction(`${shortCode}:delete`);
+
+    try {
+      const response = await fetch(buildApiUrl(buildLinkApiPath(shortCode)), {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        await readJsonResponse(response);
+      }
+
+      setDetailsByCode((current) => ({
+        ...current,
+        [shortCode]: {
+          ...current[shortCode],
+          shortCode,
+          status: "deleted"
+        }
+      }));
+      setResult((current) =>
+        current?.shortCode === shortCode ? { ...current, status: "deleted" } : current
+      );
+      const nextHistory = history.map((item) =>
+        item.shortCode === shortCode ? { ...item, status: "deleted" } : item
+      );
+      setHistory(nextHistory);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory));
+    } catch (err) {
+      setError(getRequestError(err));
+    } finally {
+      setLoadingAction("");
+    }
+  }
+
+  function toggleQrCode(shortCode) {
+    setVisibleQrCode((current) => (current === shortCode ? "" : shortCode));
   }
 
   return (
@@ -261,8 +374,15 @@ export default function App() {
           {result ? (
             <ResultCard
               item={result}
+              detail={detailsByCode[result.shortCode]}
               copiedCode={copiedCode}
+              visibleQrCode={visibleQrCode}
+              loadingAction={loadingAction}
               onCopy={copyText}
+              onLoadStats={loadStats}
+              onLoadDetail={loadDetail}
+              onToggleQrCode={toggleQrCode}
+              onDelete={deleteLink}
             />
           ) : (
             <div className="empty-state">
@@ -292,8 +412,15 @@ export default function App() {
               <ResultCard
                 key={`${item.shortCode}-${item.createdAt}`}
                 item={item}
+                detail={detailsByCode[item.shortCode]}
                 copiedCode={copiedCode}
+                visibleQrCode={visibleQrCode}
+                loadingAction={loadingAction}
                 onCopy={copyText}
+                onLoadStats={loadStats}
+                onLoadDetail={loadDetail}
+                onToggleQrCode={toggleQrCode}
+                onDelete={deleteLink}
                 isSmall
               />
             ))}
@@ -306,14 +433,37 @@ export default function App() {
   );
 }
 
-function ResultCard({ item, copiedCode, onCopy, isSmall = false }) {
+function ResultCard({
+  item,
+  detail,
+  copiedCode,
+  visibleQrCode,
+  loadingAction,
+  onCopy,
+  onLoadStats,
+  onLoadDetail,
+  onToggleQrCode,
+  onDelete,
+  isSmall = false
+}) {
   const isCopied = copiedCode === item.shortCode;
+  const cardDetail = { ...item, ...detail };
+  const status = cardDetail.status || "active";
+  const isDeleted = status === "deleted";
+  const showQr = visibleQrCode === item.shortCode;
+  const isStatsLoading = loadingAction === `${item.shortCode}:stats`;
+  const isDetailLoading = loadingAction === `${item.shortCode}:detail`;
+  const isDeleteLoading = loadingAction === `${item.shortCode}:delete`;
+  const clickCount =
+    typeof cardDetail.clickCount === "number" ? cardDetail.clickCount : null;
 
   return (
     <article className={isSmall ? "result-card small" : "result-card"}>
       <div className="code-row">
         <span className="code-pill">{item.shortCode}</span>
-        <span className="valid-pill">30 天</span>
+        <span className={isDeleted ? "status-pill deleted" : "status-pill"}>
+          {isDeleted ? "已删除" : "有效"}
+        </span>
       </div>
 
       <a className="short-url" href={item.shortUrl} target="_blank" rel="noreferrer">
@@ -321,6 +471,41 @@ function ResultCard({ item, copiedCode, onCopy, isSmall = false }) {
       </a>
 
       <p className="original-url">{item.originalUrl}</p>
+
+      <div className="stats-line">
+        <span>
+          点击量：
+          <strong>{clickCount === null ? "--" : clickCount.toLocaleString()}</strong>
+        </span>
+        {cardDetail.createdAt && (
+          <span>
+            <Calendar size={14} aria-hidden="true" />
+            创建 {formatDate(cardDetail.createdAt)}
+          </span>
+        )}
+        {cardDetail.expirationDate && (
+          <span>
+            <Calendar size={14} aria-hidden="true" />
+            过期 {formatDate(cardDetail.expirationDate)}
+          </span>
+        )}
+      </div>
+
+      {showQr && (
+        <div className="qr-panel">
+          <img
+            src={buildApiUrl(buildLinkApiPath(item.shortCode, "/qrcode"))}
+            alt={`${item.shortCode} 的二维码`}
+          />
+          <a
+            href={buildApiUrl(buildLinkApiPath(item.shortCode, "/qrcode"))}
+            target="_blank"
+            rel="noreferrer"
+          >
+            打开二维码
+          </a>
+        </div>
+      )}
 
       <div className="card-actions">
         <button
@@ -335,10 +520,68 @@ function ResultCard({ item, copiedCode, onCopy, isSmall = false }) {
           )}
           <span>{isCopied ? "已复制" : "复制"}</span>
         </button>
+        <button
+          className="icon-button link-button"
+          type="button"
+          onClick={() => onLoadStats(item.shortCode)}
+          title="刷新点击量"
+          aria-label="刷新点击量"
+        >
+          {isStatsLoading ? (
+            <Loader2 className="spin" size={18} aria-hidden="true" />
+          ) : (
+            <BarChart3 size={18} aria-hidden="true" />
+          )}
+        </button>
+        <button
+          className="icon-button link-button"
+          type="button"
+          onClick={() => onLoadDetail(item.shortCode)}
+          title="查看详情"
+          aria-label="查看详情"
+        >
+          {isDetailLoading ? (
+            <Loader2 className="spin" size={18} aria-hidden="true" />
+          ) : (
+            <Info size={18} aria-hidden="true" />
+          )}
+        </button>
+        <button
+          className="icon-button link-button"
+          type="button"
+          onClick={() => onToggleQrCode(item.shortCode)}
+          title="显示二维码"
+          aria-label="显示二维码"
+        >
+          <QrCode size={18} aria-hidden="true" />
+        </button>
         <a className="icon-button link-button" href={item.shortUrl} target="_blank" rel="noreferrer" title="打开短链接">
           <ExternalLink size={18} aria-hidden="true" />
         </a>
+        <button
+          className="icon-button danger-button"
+          type="button"
+          onClick={() => onDelete(item.shortCode)}
+          disabled={isDeleted}
+          title="删除短链接"
+          aria-label="删除短链接"
+        >
+          {isDeleteLoading ? (
+            <Loader2 className="spin" size={18} aria-hidden="true" />
+          ) : (
+            <Trash2 size={18} aria-hidden="true" />
+          )}
+        </button>
       </div>
     </article>
   );
+}
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }

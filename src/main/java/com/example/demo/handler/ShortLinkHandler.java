@@ -4,7 +4,9 @@ import java.net.URI;
 
 import org.redisson.api.RRateLimiter;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
+import com.example.demo.service.QRcodeService;
+
 
 
 @RestController
@@ -31,12 +35,18 @@ public class ShortLinkHandler {
     private static final String BIG_TAG = "short_link";
 
     private final ShortLinkService shortLinkService;
+    private final QRcodeService qrCodeService;
 
     private final RRateLimiter createLimiter;
     private final RRateLimiter getLimiter;
 
-    public ShortLinkHandler(ShortLinkService shortLinkService, @Qualifier("createLimiter") RRateLimiter createLimiter, @Qualifier("getLimiter") RRateLimiter getLimiter) {
+    // 短链对外域名前缀，来自 application.yml 的 app.short-link-base-url
+    @Value("${app.short-link-base-url}")
+    private String shortLinkBaseUrl;
+
+    public ShortLinkHandler(ShortLinkService shortLinkService, QRcodeService qrCodeService, @Qualifier("createLimiter") RRateLimiter createLimiter, @Qualifier("getLimiter") RRateLimiter getLimiter) {
         this.shortLinkService = shortLinkService;
+        this.qrCodeService = qrCodeService;
         this.createLimiter = createLimiter;
         this.getLimiter = getLimiter;
     }
@@ -81,5 +91,16 @@ public class ShortLinkHandler {
         return ResponseEntity.status(HttpStatus.FOUND)          // 302
                 .location(URI.create(resp.getOriginalUrl()))    // Location 头
                 .build();
-}
+
+    }
+
+    @GetMapping(value = "/api/link/{shortCode}/qrcode", produces = MediaType.IMAGE_PNG_VALUE)
+    public ResponseEntity<byte[]> generateQRCode(@PathVariable String shortCode) {
+        String url = shortLinkBaseUrl + "/" + shortCode;
+        byte[] qrCodeImage = qrCodeService.generateQRCode(url, 300, 300);
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .body(qrCodeImage);
+    }
+
 }

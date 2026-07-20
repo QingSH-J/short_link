@@ -14,6 +14,7 @@ public class CORSConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
         .allowedOrigins(
             "http://localhost:3000",
+            "http://localhost:5173",
             "http://localhost:8080",
             "https://qingshiyuu.com",
             "https://app.qingshiyuu.com"
