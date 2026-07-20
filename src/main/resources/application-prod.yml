@@ -1,0 +1,32 @@
+# 生产环境配置：所有敏感项强制走环境变量，不提供默认值。
+# 缺失任一环境变量则启动失败，避免误用本地/默认配置上线。
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:10}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+
+# 生产日志级别默认 WARN，减少噪音
+logging:
+  level:
+    com.example.demo: ${LOG_LEVEL:WARN}
+
+# Actuator：生产环境健康详情仅对已授权请求显示，避免泄露内部组件信息
+management:
+  endpoint:
+    health:
+      show-details: when-authorized
+  # Redis 已做降级（弱依赖），不纳入就绪探针，避免 Redis 挂掉时服务被负载均衡摘除
+  # 数据库是强依赖，保留在就绪探针中
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,64 @@
+server:
+  # 监听端口：本地默认 8080，Railway/云平台通过 PORT 环境变量动态注入
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: demo
+  # 默认激活的 profile：本地开发用 dev，上线时用环境变量 SPRING_PROFILES_ACTIVE=prod 覆盖
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    # ${环境变量:本地默认值} —— 生产用环境变量注入，本地不设也能跑
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/demo}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:10}
+      minimum-idle: ${DB_POOL_MIN:5}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+      # 本地 Redis 无密码，不配 password；生产在 application-prod.yml 里注入 REDIS_PASSWORD
+      timeout: 2000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/postgre
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+app:
+  hashids:
+    salt: ${HASHIDS_SALT}
+    min-length: 8
+
+# Actuator 健康检查
+management:
+  endpoints:
+    web:
+      exposure:
+        # 只暴露 health（和 info），不暴露其它敏感端点（env/beans/等）
+        include: health,info
+  endpoint:
+    health:
+      # 显示各组件（db、redis）的详细健康状态；生产可按需改为 when-authorized
+      show-details: always
+      # 探针分组：liveness(存活) / readiness(就绪)，k8s 滚动发布用
+      probes:
+        enabled: true
+  health:
+    # Redis 是弱依赖（已做降级），标记为非必需，避免 Redis 挂掉时整体 health 变 DOWN
+    redis:
+      enabled: true
+
+# 日志级别
+logging:
+  level:
+    com.example.demo: ${LOG_LEVEL:INFO}
