@@ -12,6 +12,8 @@ import {
 const HISTORY_KEY = "short-link-history";
 const shortLinkBase =
   import.meta.env.VITE_SHORTLINK_BASE || "http://localhost:8080";
+const apiOrigin =
+  import.meta.env.VITE_API_ORIGIN || (import.meta.env.PROD ? shortLinkBase : "");
 
 const sampleUrls = [
   "https://spring.io/projects/spring-boot",
@@ -35,6 +37,14 @@ function buildShortUrl(shortCode) {
   return `${normalizeOrigin(shortLinkBase)}/${shortCode}`;
 }
 
+function buildApiUrl(path) {
+  if (!apiOrigin) {
+    return path;
+  }
+
+  return `${normalizeOrigin(apiOrigin)}${path}`;
+}
+
 function isHttpUrl(value) {
   try {
     const parsed = new URL(value);
@@ -54,6 +64,14 @@ function getFriendlyError(message) {
   }
 
   return message;
+}
+
+function getRequestError(error) {
+  if (error instanceof TypeError) {
+    return "请求后端失败，请检查 VITE_API_ORIGIN 和后端 CORS 配置。";
+  }
+
+  return error.message || "生成失败，请确认后端服务已启动。";
 }
 
 export default function App() {
@@ -87,7 +105,7 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/link", {
+      const response = await fetch(buildApiUrl("/api/link"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -117,7 +135,7 @@ export default function App() {
       setHistory(nextHistory);
       localStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory));
     } catch (err) {
-      setError(err.message || "生成失败，请确认后端服务已启动。");
+      setError(getRequestError(err));
     } finally {
       setIsLoading(false);
     }
