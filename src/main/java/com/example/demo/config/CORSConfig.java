@@ -15,8 +15,8 @@ public class CORSConfig implements WebMvcConfigurer {
         .allowedOrigins(
             "http://localhost:3000",
             "http://localhost:8080",
-            "qingshiyuu.com",
-            "https://qingshiyuu.com"
+            "https://qingshiyuu.com",
+            "https://app.qingshiyuu.com"
 
         ).allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
         .allowedHeaders("*")
