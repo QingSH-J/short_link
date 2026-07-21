@@ -5,7 +5,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 
 import org.redisson.api.RBloomFilter;
-import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,6 +20,7 @@ import com.example.demo.dto.ShortLinkDetailResponse;
 import com.example.demo.entity.ShortLink;
 import com.example.demo.repository.ShortLinkRepository;
 import com.example.demo.util.HashidsCode;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.example.demo.util.ValidateUrl;
 @Service
 public class ShortLinkService {
@@ -31,13 +31,15 @@ public class ShortLinkService {
     private final StringRedisTemplate redisTemplate;
     private final HashidsCode hashidsCode;
     private final RBloomFilter<String> shortLinkBloomFilter;
+    private final Cache<String, String> shortLinkCache;
 
-    public ShortLinkService(GetIdService getIdService, ShortLinkRepository shortLinkRepository, StringRedisTemplate redisTemplate, HashidsCode hashidsCode, RBloomFilter<String> shortLinkBloomFilter) {
+    public ShortLinkService(GetIdService getIdService, ShortLinkRepository shortLinkRepository, StringRedisTemplate redisTemplate, HashidsCode hashidsCode, RBloomFilter<String> shortLinkBloomFilter, Cache<String, String> shortLinkCache) {
         this.getIdService = getIdService;
         this.shortLinkRepository = shortLinkRepository;
         this.redisTemplate = redisTemplate;
         this.hashidsCode = hashidsCode;
         this.shortLinkBloomFilter = shortLinkBloomFilter;
+        this.shortLinkCache = shortLinkCache;
     }
 
     @Transactional
@@ -88,8 +90,14 @@ public class ShortLinkService {
             throw new IllegalArgumentException("Short code not found: " + shortCode);
         }
 
+        // 一级缓存：本地 Caffeine（纳秒级，命中则连 Redis 都不碰）
+        String local = shortLinkCache.getIfPresent(shortCode);
+        if (local != null){
+            incrementClickCount(shortCode);
+            return new GetShortLinkResponse(shortCode, local);
+        }
 
-        //redis降级
+        //redis降级：二级缓存
         String originalURL = null;
         try {
             originalURL = redisTemplate.opsForValue().get("shortlink:" + shortCode);
@@ -102,6 +110,7 @@ public class ShortLinkService {
             if (originalURL.isEmpty()){
                 throw new IllegalArgumentException("Short code not found: " + shortCode);
             }
+            shortLinkCache.put(shortCode, originalURL);   // 回填一级缓存
             incrementClickCount(shortCode);
             return new GetShortLinkResponse(shortCode, originalURL);
         }
@@ -125,6 +134,7 @@ public class ShortLinkService {
         if (!"active".equals(shortlink.getStatus())){
             throw new IllegalArgumentException("Short code is not active: " + shortCode);
         }
+        shortLinkCache.put(shortCode, shortlink.getOriginalUrl());   // 回填一级缓存
         //redis降级
         try {
             redisTemplate.opsForValue().set("shortlink:" + shortCode, shortlink.getOriginalUrl(), Duration.ofDays(30));
@@ -209,6 +219,8 @@ public class ShortLinkService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit(){
+                // 清本地缓存（仅当前实例；多实例下其它实例靠 Caffeine 短 TTL 自然过期）
+                shortLinkCache.invalidate(shortCode);
                 try {
                     redisTemplate.delete("shortlink:" + shortCode);
                 } catch (Exception e){
