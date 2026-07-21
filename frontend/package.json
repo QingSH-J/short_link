@@ -6,15 +6,19 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
-    "vite": "^7.0.5",
-    "typescript": "^5.8.3",
+    "lucide-react": "^0.468.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "lucide-react": "^0.468.0"
+    "typescript": "^5.8.3",
+    "vite": "^7.0.5"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.45.1",
+    "wrangler": "^4.112.0"
+  }
 }
