@@ -1,10 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 const backendOrigin = process.env.VITE_API_ORIGIN || "http://localhost:8080";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), cloudflare()],
   server: {
     port: 5173,
     proxy: {
