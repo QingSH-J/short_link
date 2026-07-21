@@ -21,7 +21,7 @@ public class RateLimiterConfig {
     @Bean
     public RRateLimiter getLimiter(RedissonClient redissonClient) {
         RRateLimiter rateLimiter = redissonClient.getRateLimiter("shortLinkGetLimiter");
-        // 初始化限流器，设置每秒最多允许 200 个请求，最大等待时间为 1 秒
+        // 初始化限流器，设置每秒最多允许 2000 个请求，最大等待时间为 1 秒
         rateLimiter.trySetRate(RateType.OVERALL, 2000, Duration.ofSeconds(1));
         return rateLimiter;
     }
